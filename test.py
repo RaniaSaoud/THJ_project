@@ -108,7 +108,7 @@ def watershed_segmentation(image):
     
     sure_bg = cv2.dilate(opening, kernel, iterations=3)
     
-    # Finding sure foreground area
+   
     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
     _, sure_fg = cv2.threshold(dist_transform, 0.7 * dist_transform.max(), 255, 0)
     
@@ -129,42 +129,31 @@ def watershed_segmentation(image):
     markers = cv2.watershed(image, markers)
     image[markers == -1] = [255, 0, 0]  
 
-    markers[markers == -1] = 0  # Optional: Remove watershed boundaries
-    segmented_image = markers > 1  # All regions labeled as 2 or more are considered foreground
+    markers[markers == -1] = 0  
+    segmented_image = markers > 1  
     
     return segmented_image.astype(np.uint8) * 255
     
 
 
-def kmeans_segmentation(image, K=2):
-    """
-    Apply K-means clustering for image segmentation.
+# def kmeans_segmentation(image, K=2):
     
-    Parameters:
-    image (numpy.ndarray): The preprocessed image.
-    K (int): Number of clusters.
-    
-    Returns:
-    numpy.ndarray: The result of the K-means segmentation.
-    """
-   
-    pixel_values = image.reshape((-1, 3))
-   
-    pixel_values = np.float32(pixel_values)
+#     if image.dtype != np.uint8:
+#         image = (image * 255).astype(np.uint8)
     
    
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-    _, labels, (centers) = cv2.kmeans(pixel_values, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+#     pixel_values = image.reshape((-1, 3)) 
+#     pixel_values = np.float32(pixel_values)
     
+  
+#     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+#     _, labels, centers = cv2.kmeans(pixel_values, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+  
+#     centers = np.uint8(centers)
+#     segmented_image = centers[labels.flatten()]
+#     segmented_image = segmented_image.reshape(image.shape)
     
-    centers = np.uint8(centers)
-    
-    
-    segmented_image = centers[labels.flatten()]
-    
-    
-    segmented_image = segmented_image.reshape(image.shape)
-    return segmented_image
+#     return segmented_image
 
 
 
@@ -184,10 +173,11 @@ print(f"Threshold image size: {thresh_image.shape}")
 edge_image = edge_detection_segmentation(preprocessed_image)
 print(f"Edge image size: {edge_image.shape}")
 
-kmeans_image = kmeans_segmentation(preprocessed_image)
-kmeans_image_gray = cv2.cvtColor(kmeans_image, cv2.COLOR_BGR2GRAY)
-_, kmeans_image_binary = cv2.threshold(kmeans_image_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-print(f"K-means image size after conversion: {kmeans_image_binary.shape}")
+# kmeans_image = kmeans_segmentation(preprocessed_image, K=2)
+# kmeans_image_gray = cv2.cvtColor(kmeans_image, cv2.COLOR_BGR2GRAY)
+# _, kmeans_image_binary = cv2.threshold(kmeans_image_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+# print(f"K-means image size after conversion: {kmeans_image_binary.shape}")
 
 
 
@@ -199,10 +189,61 @@ thresh_accuracy = calculate_accuracy(thresh_image, ground_truth)
 edge_accuracy = calculate_accuracy(edge_image, ground_truth)
 
 watershed_accuracy = calculate_accuracy(watershed_image, ground_truth)
-kmeans_accuracy = calculate_accuracy(kmeans_image_binary, ground_truth)
+# kmeans_accuracy = calculate_accuracy(kmeans_image_binary, ground_truth)
 
 
 print(f"Watershed Segmentation Accuracy: {watershed_accuracy}")
-print(f"K-means Segmentation Accuracy: {kmeans_accuracy}")
+# print(f"K-means Segmentation Accuracy: {kmeans_accuracy}")
 print(f"Threshold Segmentation Accuracy: {thresh_accuracy}")
 print(f"Edge Detection Segmentation Accuracy: {edge_accuracy}")
+
+
+
+
+method_accuracies = {
+    'watershed': watershed_accuracy,
+    'threshold': thresh_accuracy,
+    'edge': edge_accuracy
+}
+
+
+binary_watershed = watershed_segmentation(preprocessed_image) > 0
+
+
+# binary_kmeans = kmeans_segmentation(preprocessed_image) > 0
+# kmeans_image_gray = cv2.cvtColor(kmeans_image, cv2.COLOR_BGR2GRAY)
+# _, kmeans_image_binary = cv2.threshold(kmeans_image_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+
+binary_threshold = threshold_segmentation(preprocessed_image) > 0
+
+binary_edge = edge_detection_segmentation(preprocessed_image) > 0
+
+segmentations_stack = np.stack((binary_watershed,  binary_threshold, binary_edge), axis=-1)
+
+
+dominant_methods_idx = np.argmax(segmentations_stack * list(method_accuracies.values()), axis=-1)
+
+
+dominant_segmentation = np.take_along_axis(segmentations_stack, np.expand_dims(dominant_methods_idx, axis=-1), axis=-1).squeeze()
+
+
+recolored_image = np.where(dominant_segmentation[..., None], 0, 255)  
+
+# Displaying all the results of the methods
+
+binary_watershed_8bit = (binary_watershed * 255).astype(np.uint8)
+#binary_kmeans_8bit = (binary_kmeans * 255).astype(np.uint8)
+binary_threshold_8bit = (binary_threshold * 255).astype(np.uint8)
+binary_edge_8bit = (binary_edge * 255).astype(np.uint8)
+
+
+display_image(binary_watershed_8bit, "Watershed Segmentation")
+#display_image(binary_kmeans_8bit, "K-means Segmentation")
+display_image(binary_threshold_8bit, "Threshold Segmentation")
+display_image(binary_edge_8bit, "Edge Detection Segmentation")
+
+
+
+
+display_image(recolored_image.astype(np.uint8), "Final Recolored Image")
