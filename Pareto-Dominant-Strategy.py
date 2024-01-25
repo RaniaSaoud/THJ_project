@@ -21,12 +21,16 @@ def preprocess_image(image_path, size=(256, 256), convert_color=True):
 
 def display_image(image, window_name="Image"):
     
-    if image.dtype == np.float32:
-        image = (image * 255).astype(np.uint8)
+    if image.dtype != np.uint8:
+        if image.max() <= 1.0:  
+            image = (image * 255).astype(np.uint8)
+        else:
+            image = image.astype(np.uint8)
 
     cv2.imshow(window_name, image)
-    cv2.waitKey(0)  
+    cv2.waitKey(0)
     cv2.destroyAllWindows()
+
 
 def threshold_segmentation(image):
   
@@ -54,17 +58,10 @@ def edge_detection_segmentation(image, low_threshold=50, high_threshold=150):
 
 
 def calculate_accuracy(segmented, ground_truth):
-  
-    
     assert segmented.shape == ground_truth.shape, "Images must be the same size for accuracy calculation"
-    
-    
     correct = np.sum(segmented == ground_truth)
-    
-    
     total_pixels = ground_truth.size
     accuracy = correct / total_pixels
-    
     return accuracy
 
 
@@ -134,71 +131,45 @@ def watershed_segmentation(image):
     
     return segmented_image.astype(np.uint8) * 255
     
+def is_pareto_dominant(current_strategies, new_strategy, method_accuracies):
+    for strategy, accuracy in current_strategies.items():
+        if method_accuracies[new_strategy] <= accuracy:
+            return False
+    return True
 
 
-# def kmeans_segmentation(image, K=2):
-    
-#     if image.dtype != np.uint8:
-#         image = (image * 255).astype(np.uint8)
-    
-   
-#     pixel_values = image.reshape((-1, 3)) 
-#     pixel_values = np.float32(pixel_values)
-    
-  
-#     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-#     _, labels, centers = cv2.kmeans(pixel_values, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-  
-#     centers = np.uint8(centers)
-#     segmented_image = centers[labels.flatten()]
-#     segmented_image = segmented_image.reshape(image.shape)
-    
-#     return segmented_image
+def find_pareto_dominant_strategies(method_accuracies):
+    pareto_dominant_strategies = []
+    for strategy, accuracy in method_accuracies.items():
+        is_dominated = False
+        for other_strategy, other_accuracy in method_accuracies.items():
+            if strategy != other_strategy and other_accuracy >= accuracy:
+                is_dominated = True
+                break
+        if not is_dominated:
+            pareto_dominant_strategies.append(strategy)
+    return pareto_dominant_strategies
 
-
-
-image_path = 'one.jpg' 
-ground_truth_path = 'segmented_image.jpg'  
-
+# Main processing starts here
+image_path = '0005.jpg'
+ground_truth_path = '0005.png'
 
 preprocessed_image = preprocess_image(image_path, convert_color=False)
-print(f"Preprocessed image size: {preprocessed_image.shape}")
-
 ground_truth = preprocess_ground_truth(ground_truth_path, target_size=preprocessed_image.shape[:2])
-print(f"Ground truth size: {ground_truth.shape}")
 
 thresh_image = threshold_segmentation(preprocessed_image)
-print(f"Threshold image size: {thresh_image.shape}")
+display_image(thresh_image, "Threshold Segmentation")
 
 edge_image = edge_detection_segmentation(preprocessed_image)
-print(f"Edge image size: {edge_image.shape}")
-
-# kmeans_image = kmeans_segmentation(preprocessed_image, K=2)
-# kmeans_image_gray = cv2.cvtColor(kmeans_image, cv2.COLOR_BGR2GRAY)
-# _, kmeans_image_binary = cv2.threshold(kmeans_image_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-# print(f"K-means image size after conversion: {kmeans_image_binary.shape}")
-
-
+display_image(edge_image, "Edge Detection Segmentation")
 
 watershed_image = watershed_segmentation(preprocessed_image)
-print(f"watershed image size: {watershed_image.shape}")
-
+watershed_display = (watershed_image > 1).astype(np.uint8) * 255  
+display_image(watershed_display, "Watershed Segmentation")
 
 thresh_accuracy = calculate_accuracy(thresh_image, ground_truth)
 edge_accuracy = calculate_accuracy(edge_image, ground_truth)
-
 watershed_accuracy = calculate_accuracy(watershed_image, ground_truth)
-# kmeans_accuracy = calculate_accuracy(kmeans_image_binary, ground_truth)
-
-
-print(f"Watershed Segmentation Accuracy: {watershed_accuracy}")
-# print(f"K-means Segmentation Accuracy: {kmeans_accuracy}")
-print(f"Threshold Segmentation Accuracy: {thresh_accuracy}")
-print(f"Edge Detection Segmentation Accuracy: {edge_accuracy}")
-
-
-
 
 method_accuracies = {
     'watershed': watershed_accuracy,
@@ -206,44 +177,34 @@ method_accuracies = {
     'edge': edge_accuracy
 }
 
+binary_watershed = watershed_image > 1
+binary_threshold = thresh_image > 0
+binary_edge = edge_image > 0
 
-binary_watershed = watershed_segmentation(preprocessed_image) > 0
+height, width = preprocessed_image.shape[:2]
+final_segmentation = np.zeros((height, width), dtype=np.uint8)
 
+# Calculate Pareto-dominant strategies
+pareto_dominant_strategies = find_pareto_dominant_strategies(method_accuracies)
 
-# binary_kmeans = kmeans_segmentation(preprocessed_image) > 0
-# kmeans_image_gray = cv2.cvtColor(kmeans_image, cv2.COLOR_BGR2GRAY)
-# _, kmeans_image_binary = cv2.threshold(kmeans_image_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-
-binary_threshold = threshold_segmentation(preprocessed_image) > 0
-
-binary_edge = edge_detection_segmentation(preprocessed_image) > 0
-
-segmentations_stack = np.stack((binary_watershed,  binary_threshold, binary_edge), axis=-1)
-
-
-dominant_methods_idx = np.argmax(segmentations_stack * list(method_accuracies.values()), axis=-1)
-
-
-dominant_segmentation = np.take_along_axis(segmentations_stack, np.expand_dims(dominant_methods_idx, axis=-1), axis=-1).squeeze()
-
-
-recolored_image = np.where(dominant_segmentation[..., None], 0, 255)  
-
-# Displaying all the results of the methods
-
-binary_watershed_8bit = (binary_watershed * 255).astype(np.uint8)
-#binary_kmeans_8bit = (binary_kmeans * 255).astype(np.uint8)
-binary_threshold_8bit = (binary_threshold * 255).astype(np.uint8)
-binary_edge_8bit = (binary_edge * 255).astype(np.uint8)
+# Find the Pareto-dominant strategy for each pixel
+for y in range(height):
+    for x in range(width):
+        pixel_strategies = {
+            'watershed': binary_watershed[y, x],
+            'threshold': binary_threshold[y, x],
+            'edge': binary_edge[y, x]
+        }
+        
+        pixel_payoffs = {method: accuracy for method, accuracy in method_accuracies.items() if method in pareto_dominant_strategies}
+        dominant_strategy = max(pixel_payoffs, key=pixel_payoffs.get)
+        player1_gain = pixel_payoffs[dominant_strategy] if pixel_strategies[dominant_strategy] else 1 - pixel_payoffs[dominant_strategy]
+        player2_gain = 1 - player1_gain
+        
+        if player1_gain > player2_gain:
+            final_segmentation[y, x] = 255  # White for object
+        else:
+            final_segmentation[y, x] = 0  # Black for background
 
 
-display_image(binary_watershed_8bit, "Watershed Segmentation")
-#display_image(binary_kmeans_8bit, "K-means Segmentation")
-display_image(binary_threshold_8bit, "Threshold Segmentation")
-display_image(binary_edge_8bit, "Edge Detection Segmentation")
-
-
-
-
-display_image(recolored_image.astype(np.uint8), "Final Recolored Image")
+display_image(final_segmentation, "Final Segmentation")
