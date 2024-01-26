@@ -150,7 +150,7 @@ def find_pareto_dominant_strategies(method_accuracies):
             pareto_dominant_strategies.append(strategy)
     return pareto_dominant_strategies
 
-# Main processing starts here
+
 image_path = '0005.jpg'
 ground_truth_path = '0005.png'
 
@@ -184,10 +184,10 @@ binary_edge = edge_image > 0
 height, width = preprocessed_image.shape[:2]
 final_segmentation = np.zeros((height, width), dtype=np.uint8)
 
-# Calculate Pareto-dominant strategies
+
 pareto_dominant_strategies = find_pareto_dominant_strategies(method_accuracies)
 
-# Find the Pareto-dominant strategy for each pixel
+
 for y in range(height):
     for x in range(width):
         pixel_strategies = {
@@ -202,9 +202,9 @@ for y in range(height):
         player2_gain = 1 - player1_gain
         
         if player1_gain > player2_gain:
-            final_segmentation[y, x] = 255  # White for object
+            final_segmentation[y, x] = 255 
         else:
-            final_segmentation[y, x] = 0  # Black for background
+            final_segmentation[y, x] = 0  
 
 
 display_image(final_segmentation, "Final Segmentation")
